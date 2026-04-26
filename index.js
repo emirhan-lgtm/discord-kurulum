@@ -58,6 +58,18 @@ const commands = [
     .setName("kayit_sil")
     .setDescription("Kayıt sil")
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+
+new SlashCommandBuilder()
+   .setName("duyuru")
+   .setDescription("Duyuru yap")
+   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  
+  new SlashCommandBuilder()
+   .setName("mesaj_sil")
+   .setDescription("Mesaj sil (max 100)")
+   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  
 ].map(c => c.toJSON());
 
 // ================= REGISTER =================
@@ -266,6 +278,83 @@ function checkSureler() {
     }
 
     return true;
+  });
+}
+
+// ================= Duyuru =================
+if (i.commandName === "duyuru") {
+  const modal = new ModalBuilder()
+    .setCustomId("duyuru_modal")
+    .setTitle("📢 Duyuru Oluştur");
+
+  const msg = new TextInputBuilder()
+    .setCustomId("msg")
+    .setLabel("Duyuru metni")
+    .setStyle(TextInputStyle.Paragraph);
+
+  modal.addComponents(new ActionRowBuilder().addComponents(msg));
+
+  return i.showModal(modal);
+}
+
+if (i.isModalSubmit() && i.customId === "duyuru_modal") {
+  const msg = i.fields.getTextInputValue("msg");
+
+  const embed = new EmbedBuilder()
+    .setColor("Yellow")
+    .setTitle("📢 DUYURU")
+    .setDescription(msg)
+    .setFooter({ text: `Yetkili: ${i.user.tag}` });
+
+  await i.channel.send({
+    content: "@everyone",
+    embeds: [embed]
+  });
+
+  return i.reply({ content: "Duyuru gönderildi", ephemeral: true });
+}
+
+// ================= mesaj_sil =================
+if (i.commandName === "mesaj_sil") {
+  if (!i.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
+    return i.reply({ content: "Yetkin yok", ephemeral: true });
+  }
+
+  await i.reply({
+    content: "Silinecek mesaj sayısını yaz (1-100):",
+    ephemeral: true
+  });
+
+  const filter = m => m.author.id === i.user.id;
+
+  const collector = i.channel.createMessageCollector({
+    filter,
+    max: 1,
+    time: 15000
+  });
+
+  collector.on("collect", async (msg) => {
+    let count = Number(msg.content);
+
+    if (isNaN(count)) {
+      return msg.reply("Sadece sayı gir.");
+    }
+
+    if (count > 100) count = 100;
+
+    const messages = await i.channel.messages.fetch({ limit: count });
+
+    await i.followUp({ content: "Siliniyor...", ephemeral: true });
+
+    await i.channel.bulkDelete(messages, true);
+
+    await i.followUp({ content: "Mesajlar silindi ✔", ephemeral: true });
+  });
+
+  collector.on("end", collected => {
+    if (collected.size === 0) {
+      i.followUp({ content: "Süre doldu, işlem iptal.", ephemeral: true });
+    }
   });
 }
 
