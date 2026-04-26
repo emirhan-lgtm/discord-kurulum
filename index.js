@@ -1,76 +1,46 @@
+require("dotenv").config();
 const {
-Client,
-GatewayIntentBits,
-SlashCommandBuilder,
-Routes,
-REST,
-ActionRowBuilder,
-ButtonBuilder,
-ButtonStyle,
-ModalBuilder,
-TextInputBuilder,
-TextInputStyle,
-Events,
-EmbedBuilder,
-PermissionFlagsBits,
-Partials
+  Client,
+  GatewayIntentBits,
+  REST,
+  Routes,
+  SlashCommandBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  EmbedBuilder,
+  Events,
+  PermissionFlagsBits,
 } = require("discord.js");
 
-const fs = require("fs");
 const express = require("express");
-require("dotenv").config();
-
-// ================= WEB SUNUCU (RAILWAY FIX) =================
 const app = express();
+app.get("/", (_, res) => res.send("Bot aktif"));
+app.listen(3000);
 
-app.get("/", (req, res) => {
-res.send("Bot aktif ve çalışıyor");
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-console.log(✅ Web sunucusu çalışıyor: ${PORT});
-});
-
-// ================= AYARLAR =================
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 
+// SABİTLER
 const YETKILI_ROL_ID = "1497222663708610630";
 const LOG_KANAL_ID = "1497470961392418816";
 const ADMIN_DM_ID = "1054405916209991740";
-
 const TAG_ID = "1497222663708610630";
 
-// ================= VERİ =================
-let veri = [];
+// MEMORY DB
+let kayitlar = []; 
+// { userId, isim, sureGun, baslangic }
 
-if (fs.existsSync("./data.json")) {
-try {
-veri = JSON.parse(fs.readFileSync("./data.json", "utf8"));
-} catch {
-veri = [];
-}
-}
-
-function kaydet() {
-fs.writeFileSync("./data.json", JSON.stringify(veri, null, 2));
-}
-
-// ================= BOT =================
 const client = new Client({
-intents: [
-GatewayIntentBits.Guilds,
-GatewayIntentBits.DirectMessages,
-GatewayIntentBits.GuildMessages,
-GatewayIntentBits.MessageContent
-],
-partials: [Partials.Channel]
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages],
+  partials: []
 });
 
-
-// ================= KOMUTLAR =================
+// ---------------- COMMANDS ----------------
 const commands = [
   new SlashCommandBuilder()
     .setName("ehliyet")
@@ -83,266 +53,266 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("kayit_sil")
-    .setDescription("Kayıt siler")
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .addStringOption(o =>
-      o.setName("id").setDescription("Kayıt ID").setRequired(true)
-    ),
+    .setDescription("Kayıt sil")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   new SlashCommandBuilder()
     .setName("duyuru")
-    .setDescription("Duyuru gönderir")
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .addStringOption(o =>
-      o.setName("mesaj").setDescription("Mesaj").setRequired(true)
-    ),
+    .setDescription("Duyuru yap")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   new SlashCommandBuilder()
     .setName("mesaj_sil")
-    .setDescription("Mesaj siler (max 100)")
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .addIntegerOption(o =>
-      o.setName("adet").setDescription("Silinecek mesaj").setRequired(true)
-    )
-];
+    .setDescription("Mesaj sil (max 100)")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+].map(c => c.toJSON());
 
-// ================= DISCORD =================
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 client.once("ready", async () => {
-  await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
-    body: commands
-  });
-
   console.log("Bot aktif");
 
-  setInterval(checkExpired, 60000);
+  await rest.put(
+    Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+    { body: commands }
+  );
+
+  setInterval(checkSureler, 60 * 1000);
 });
 
-// ================= PANEL =================
-function panelEmbed() {
-  return new EmbedBuilder()
-    .setTitle("Ehliyet Paneli")
-    .setColor("Blue")
-    .setDescription("İşlem seç");
-}
-
-function panelButtons() {
+// ---------------- EHLIYET PANEL ----------------
+function panel() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId("kayit_ac")
       .setLabel("📝 Kayıt Aç")
       .setStyle(ButtonStyle.Success),
-
     new ButtonBuilder()
       .setCustomId("kayit_list")
       .setLabel("📋 Kayıtlar")
       .setStyle(ButtonStyle.Primary),
-
     new ButtonBuilder()
-      .setCustomId("kayit_sil_btn")
+      .setCustomId("kayit_sil_panel")
       .setLabel("🗑️ Kayıt Sil")
       .setStyle(ButtonStyle.Danger)
   );
 }
 
-// ================= INTERACTION =================
-client.on(Events.InteractionCreate, async interaction => {
+// ---------------- EVENTS ----------------
+client.on(Events.InteractionCreate, async (i) => {
+  if (!i.isChatInputCommand() && !i.isButton() && !i.isModalSubmit()) return;
 
-  if (interaction.isChatInputCommand()) {
+  const member = i.member;
 
-    if (interaction.commandName === "ehliyet") {
-      if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator))
-        return interaction.reply({ content: "Yetkin yok", ephemeral: true });
+  const yetki = member.roles?.cache?.has(YETKILI_ROL_ID);
 
-      return interaction.reply({
-        embeds: [panelEmbed()],
-        components: [panelButtons()]
-      });
-    }
+  // ---------------- /ehliyet ----------------
+  if (i.commandName === "ehliyet") {
+    if (!yetki) return i.reply({ content: "Yetkin yok", ephemeral: true });
 
-    if (interaction.commandName === "kayitlar") {
-      return sendList(interaction, 0);
-    }
+    const embed = new EmbedBuilder()
+      .setTitle("Ehliyet Panel")
+      .setColor("Blue");
 
-    if (interaction.commandName === "kayit_sil") {
-      const id = interaction.options.getString("id");
-
-      db.kayitlar = db.kayitlar.filter(x => x.id !== id);
-      saveDB();
-
-      const embed = new EmbedBuilder()
-        .setTitle("Kayıt Silindi")
-        .setColor("Red")
-        .setDescription(`ID: ${id}`);
-
-      dmLog(embed);
-
-      return interaction.reply("Silindi");
-    }
-
-    if (interaction.commandName === "duyuru") {
-      const msg = interaction.options.getString("mesaj");
-
-      const embed = new EmbedBuilder()
-        .setTitle("📢 Duyuru")
-        .setColor("Yellow")
-        .setDescription(msg);
-
-      interaction.channel.send({
-        content: "@everyone",
-        embeds: [embed]
-      });
-
-      return interaction.reply({ content: "Gönderildi", ephemeral: true });
-    }
-
-    if (interaction.commandName === "mesaj_sil") {
-      const adet = interaction.options.getInteger("adet");
-
-      if (adet > 100)
-        return interaction.reply("Max 100");
-
-      const silinen = await interaction.channel.bulkDelete(adet, true);
-
-      return interaction.reply(`Silindi: ${silinen.size}`);
-    }
+    return i.reply({ embeds: [embed], components: [panel()] });
   }
 
-  // BUTTON
-  if (interaction.isButton()) {
+  // ---------------- KAYIT EKLE MODAL ----------------
+  if (i.isButton() && i.customId === "kayit_ac") {
+    const modal = new ModalBuilder()
+      .setCustomId("kayit_modal")
+      .setTitle("Kayıt Ekle");
 
-    if (interaction.customId === "kayit_ac") {
-      const modal = new ModalBuilder()
-        .setCustomId("kayit_modal")
-        .setTitle("Kayıt Ekle");
+    const isim = new TextInputBuilder()
+      .setCustomId("isim")
+      .setLabel("Kullanıcı Adı")
+      .setStyle(TextInputStyle.Short);
 
-      const user = new TextInputBuilder()
-        .setCustomId("user")
-        .setLabel("Kullanıcı")
-        .setStyle(TextInputStyle.Short);
+    const sure = new TextInputBuilder()
+      .setCustomId("sure")
+      .setLabel("Süre (gün)")
+      .setStyle(TextInputStyle.Short);
 
-      const days = new TextInputBuilder()
-        .setCustomId("days")
-        .setLabel("Süre (gün)")
-        .setStyle(TextInputStyle.Short);
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(isim),
+      new ActionRowBuilder().addComponents(sure)
+    );
 
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(user),
-        new ActionRowBuilder().addComponents(days)
-      );
-
-      return interaction.showModal(modal);
-    }
-
-    if (interaction.customId === "kayit_list") {
-      return sendList(interaction, 0);
-    }
-
-    if (interaction.customId === "kayit_sil_btn") {
-      const modal = new ModalBuilder()
-        .setCustomId("sil_modal")
-        .setTitle("Kayıt Sil");
-
-      const id = new TextInputBuilder()
-        .setCustomId("id")
-        .setLabel("Kayıt ID")
-        .setStyle(TextInputStyle.Short);
-
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(id)
-      );
-
-      return interaction.showModal(modal);
-    }
+    return i.showModal(modal);
   }
 
-  // MODAL
-  if (interaction.isModalSubmit()) {
+  if (i.isModalSubmit() && i.customId === "kayit_modal") {
+    const isim = i.fields.getTextInputValue("isim");
+    const sure = i.fields.getTextInputValue("sure");
 
-    if (interaction.customId === "kayit_modal") {
-      const user = interaction.fields.getTextInputValue("user");
-      const days = interaction.fields.getTextInputValue("days");
-
-      if (isNaN(days))
-        return interaction.reply({ content: "Sadece sayı gir", ephemeral: true });
-
-      const id = Date.now().toString();
-
-      db.kayitlar.push({
-        id,
-        user,
-        expires: Date.now() + days * 86400000
-      });
-
-      saveDB();
-
-      const embed = new EmbedBuilder()
-        .setTitle("Kayıt Eklendi")
-        .setColor("Green")
-        .setDescription(`Kullanıcı: ${user}\nSüre: ${days} gün`);
-
-      dmLog(embed);
-
-      return interaction.reply({ content: "Eklendi", ephemeral: true });
+    if (isNaN(sure)) {
+      return i.reply({ content: "Süre sayı olmalı", ephemeral: true });
     }
 
-    if (interaction.customId === "sil_modal") {
-      const id = interaction.fields.getTextInputValue("id");
+    kayitlar.push({
+      userId: i.user.id,
+      isim,
+      sureGun: Number(sure),
+      baslangic: Date.now()
+    });
 
-      db.kayitlar = db.kayitlar.filter(x => x.id !== id);
-      saveDB();
+    const dm = new EmbedBuilder()
+      .setColor("Green")
+      .setTitle("Kayıt Eklendi")
+      .setDescription(`${isim} eklendi`);
 
-      const embed = new EmbedBuilder()
-        .setTitle("Kayıt Silindi")
-        .setColor("Red")
-        .setDescription(`ID: ${id}`);
+    client.users.fetch(ADMIN_DM_ID).then(u => u.send({ embeds: [dm] }));
 
-      dmLog(embed);
+    return i.reply({ content: "Kayıt eklendi", ephemeral: true });
+  }
 
-      return interaction.reply({ content: "Silindi", ephemeral: true });
-    }
+  // ---------------- KAYIT LİSTE ----------------
+  if ((i.commandName === "kayitlar") || (i.isButton() && i.customId === "kayit_list")) {
+    if (!yetki) return i.reply({ content: "Yetkin yok", ephemeral: true });
+
+    const page = 0;
+    const sayfa = kayitlar.slice(0, 5);
+
+    const embed = new EmbedBuilder()
+      .setTitle("Kayıtlar")
+      .setColor("Purple")
+      .setDescription(
+        sayfa.map((k, idx) =>
+          `**${idx + 1}.** ${k.isim} - ${k.sureGun} gün`
+        ).join("\n") || "Boş"
+      );
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId("prev").setLabel("◀").setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId("refresh").setLabel("🔄").setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId("next").setLabel("▶").setStyle(ButtonStyle.Secondary)
+    );
+
+    return i.reply({ embeds: [embed], components: [row], ephemeral: true });
+  }
+
+  // ---------------- KAYIT SİL ----------------
+  if (i.commandName === "kayit_sil") {
+    if (!yetki) return i.reply({ content: "Yetkin yok", ephemeral: true });
+
+    const modal = new ModalBuilder()
+      .setCustomId("sil_modal")
+      .setTitle("Kayıt Sil");
+
+    const isim = new TextInputBuilder()
+      .setCustomId("isim")
+      .setLabel("Silinecek isim")
+      .setStyle(TextInputStyle.Short);
+
+    modal.addComponents(new ActionRowBuilder().addComponents(isim));
+
+    return i.showModal(modal);
+  }
+
+  if (i.isModalSubmit() && i.customId === "sil_modal") {
+    const isim = i.fields.getTextInputValue("isim");
+
+    kayitlar = kayitlar.filter(k => k.isim !== isim);
+
+    const log = new EmbedBuilder()
+      .setColor("Red")
+      .setTitle("Kayıt Silindi")
+      .setDescription(isim);
+
+    client.channels.fetch(LOG_KANAL_ID).then(c =>
+      c.send({ content: `<@&${TAG_ID}>`, embeds: [log] })
+    );
+
+    return i.reply({ content: "Silindi", ephemeral: true });
+  }
+
+  // ---------------- DUYURU ----------------
+  if (i.commandName === "duyuru") {
+    const modal = new ModalBuilder()
+      .setCustomId("duyuru_modal")
+      .setTitle("Duyuru");
+
+    const msg = new TextInputBuilder()
+      .setCustomId("msg")
+      .setLabel("Mesaj")
+      .setStyle(TextInputStyle.Paragraph);
+
+    modal.addComponents(new ActionRowBuilder().addComponents(msg));
+
+    return i.showModal(modal);
+  }
+
+  if (i.isModalSubmit() && i.customId === "duyuru_modal") {
+    const msg = i.fields.getTextInputValue("msg");
+
+    const embed = new EmbedBuilder()
+      .setColor("Yellow")
+      .setDescription(msg);
+
+    await i.channel.send({ content: "@everyone", embeds: [embed] });
+
+    return i.reply({ content: "Gönderildi", ephemeral: true });
+  }
+
+  // ---------------- MESAJ SİL ----------------
+  if (i.commandName === "mesaj_sil") {
+    const modal = new ModalBuilder()
+      .setCustomId("msil")
+      .setTitle("Mesaj Sil");
+
+    const count = new TextInputBuilder()
+      .setCustomId("count")
+      .setLabel("Kaç mesaj (max 100)")
+      .setStyle(TextInputStyle.Short);
+
+    modal.addComponents(new ActionRowBuilder().addComponents(count));
+
+    return i.showModal(modal);
+  }
+
+  if (i.isModalSubmit() && i.customId === "msil") {
+    let count = Number(i.fields.getTextInputValue("count"));
+    if (count > 100) count = 100;
+
+    const messages = await i.channel.messages.fetch({ limit: count });
+
+    await i.reply({ content: "Siliniyor..." });
+
+    await i.channel.bulkDelete(messages, true);
+
+    return i.followUp({
+      content: "Tamamlandı",
+      ephemeral: true
+    });
   }
 });
 
-// ================= LİSTE =================
-function sendList(interaction, page) {
-  const per = 5;
-  const start = page * per;
-
-  const data = db.kayitlar.slice(start, start + per);
-
-  const embed = new EmbedBuilder()
-    .setTitle("Kayıt Listesi")
-    .setColor("Blue")
-    .setDescription(
-      data.map(x =>
-        `ID: ${x.id} | ${x.user} | ${Math.floor((x.expires - Date.now()) / 60000)} dk`
-      ).join("\n") || "Boş"
-    );
-
-  return interaction.reply({ embeds: [embed], ephemeral: true });
-}
-
-// ================= SÜRE KONTROL =================
-function checkExpired() {
+// ---------------- SÜRE KONTROL ----------------
+function checkSureler() {
   const now = Date.now();
 
-  db.kayitlar.forEach(x => {
-    if (x.expires < now) {
+  kayitlar = kayitlar.filter(k => {
+    const bitis = k.baslangic + (k.sureGun * 24 * 60 * 60 * 1000);
 
-      const embed = new EmbedBuilder()
-        .setTitle("Süre Doldu")
+    if (now > bitis) {
+      const log = new EmbedBuilder()
         .setColor("Yellow")
-        .setDescription(`Kullanıcı: ${x.user}`);
+        .setTitle("Süre Bitti")
+        .setDescription(k.isim);
 
-      dmLog(embed);
+      client.channels.fetch(LOG_KANAL_ID).then(c =>
+        c.send({ content: `<@&${TAG_ID}>`, embeds: [log] })
+      );
 
-      db.kayitlar = db.kayitlar.filter(k => k.id !== x.id);
-      saveDB();
+      client.users.fetch(ADMIN_DM_ID).then(u =>
+        u.send({ embeds: [log] })
+      );
+
+      return false;
     }
+
+    return true;
   });
 }
 
-// ================= BOT =================
 client.login(TOKEN);
