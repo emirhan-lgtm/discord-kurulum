@@ -1,4 +1,4 @@
-const {
+  const {
   Client,
   GatewayIntentBits,
   SlashCommandBuilder,
@@ -608,4 +608,5 @@ setInterval(async () => {
 
 // ================= GİRİŞ =================
 client.login(TOKEN);
+      
     
