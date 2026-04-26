@@ -31,23 +31,22 @@ const ADMIN_DM_ID = "1054405916209991740";
 const TAG_ID = "1497222663708610630";
 
 // ================= MEMORY =================
-let kayitlar = []; 
-// { userId, isim, sureGun, baslangic, yetkili }
+let kayitlar = [];
 
 // ================= CLIENT =================
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
+    GatewayIntentBits.MessageContent,
+  ],
 });
 
 // ================= COMMANDS =================
 const commands = [
   new SlashCommandBuilder()
     .setName("ehliyet")
-    .setDescription("Ehliyet kayıt panelini açar"),
+    .setDescription("Ehliyet panelini açar"),
 
   new SlashCommandBuilder()
     .setName("kayitlar")
@@ -59,17 +58,15 @@ const commands = [
     .setDescription("Kayıt sil")
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-
-new SlashCommandBuilder()
-   .setName("duyuru")
-   .setDescription("Duyuru yap")
-   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  
   new SlashCommandBuilder()
-   .setName("mesaj_sil")
-   .setDescription("Mesaj sil (max 100)")
-   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-  
+    .setName("duyuru")
+    .setDescription("Duyuru yap")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+  new SlashCommandBuilder()
+    .setName("mesaj_sil")
+    .setDescription("Mesaj sil (max 100)")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 ].map(c => c.toJSON());
 
 // ================= REGISTER =================
@@ -118,11 +115,11 @@ client.on(Events.InteractionCreate, async (i) => {
     const embed = new EmbedBuilder()
       .setColor("Blue")
       .setTitle("👮 ## Ehliyet Kayıt")
-      .setDescription("Aşağıdan işlem seçebilirsin.\n\n📝 Kayıt ekle\n📋 Kayıtları görüntüle\n🗑️ Kayıt sil");
+      .setDescription("📝 Kayıt ekle\n📋 Kayıtları görüntüle\n🗑️ Kayıt sil");
 
     return i.reply({
       embeds: [embed],
-      components: [ehliyetPanel()]
+      components: [ehliyetPanel()],
     });
   }
 
@@ -158,35 +155,24 @@ client.on(Events.InteractionCreate, async (i) => {
       return i.reply({ content: "Süre sayı olmalı", ephemeral: true });
     }
 
-    const data = {
+    kayitlar.push({
       userId: i.user.id,
       isim,
       sureGun: Number(sure),
-      baslangic: Date.now()
-    };
+      baslangic: Date.now(),
+    });
 
-    kayitlar.push(data);
-
-    // DM LOG
-    const dmEmbed = new EmbedBuilder()
+    const embed = new EmbedBuilder()
       .setColor("Green")
       .setTitle("Kayıt Eklendi")
       .setDescription(`Personel: ${isim}`);
 
-    client.users.fetch(ADMIN_DM_ID).then(u => u.send({ embeds: [dmEmbed] }));
-
-    // CHANNEL LOG
-    const logEmbed = new EmbedBuilder()
-      .setColor("Green")
-      .setTitle("Kayıt Eklendi")
-      .addFields(
-        { name: "Personel", value: isim },
-        { name: "Süren", value: `${sure} gün` },
-        { name: "Ekleyen", value: `<@${i.user.id}>` }
-      );
-
     client.channels.fetch(LOG_KANAL_ID).then(c =>
-      c.send({ content: `<@&${TAG_ID}>`, embeds: [logEmbed] })
+      c.send({ content: `<@&${TAG_ID}>`, embeds: [embed] })
+    );
+
+    client.users.fetch(ADMIN_DM_ID).then(u =>
+      u.send({ embeds: [embed] })
     );
 
     return i.reply({ content: "Kayıt eklendi", ephemeral: true });
@@ -225,10 +211,9 @@ client.on(Events.InteractionCreate, async (i) => {
   if (i.isModalSubmit() && i.customId === "sil_modal") {
     const isim = i.fields.getTextInputValue("isim");
 
-    const silinen = kayitlar.find(k => k.isim === isim);
     kayitlar = kayitlar.filter(k => k.isim !== isim);
 
-    const logEmbed = new EmbedBuilder()
+    const embed = new EmbedBuilder()
       .setColor("Red")
       .setTitle("Kayıt Silindi")
       .addFields(
@@ -236,17 +221,84 @@ client.on(Events.InteractionCreate, async (i) => {
         { name: "Silen Yetkili", value: `<@${i.user.id}>` }
       );
 
-    // LOG KANAL
     client.channels.fetch(LOG_KANAL_ID).then(c =>
-      c.send({ content: `<@&${TAG_ID}>`, embeds: [logEmbed] })
+      c.send({ content: `<@&${TAG_ID}>`, embeds: [embed] })
     );
 
-    // DM
     client.users.fetch(ADMIN_DM_ID).then(u =>
-      u.send({ embeds: [logEmbed] })
+      u.send({ embeds: [embed] })
     );
 
     return i.reply({ content: "Silindi", ephemeral: true });
+  }
+
+  // ================= DUYURU =================
+  if (i.commandName === "duyuru") {
+    const modal = new ModalBuilder()
+      .setCustomId("duyuru_modal")
+      .setTitle("📢 Duyuru");
+
+    const msg = new TextInputBuilder()
+      .setCustomId("msg")
+      .setLabel("Duyuru metni")
+      .setStyle(TextInputStyle.Paragraph);
+
+    modal.addComponents(new ActionRowBuilder().addComponents(msg));
+
+    return i.showModal(modal);
+  }
+
+  if (i.isModalSubmit() && i.customId === "duyuru_modal") {
+    const msg = i.fields.getTextInputValue("msg");
+
+    const embed = new EmbedBuilder()
+      .setColor("Yellow")
+      .setTitle("📢 DUYURU")
+      .setDescription(msg)
+      .setFooter({ text: `Yetkili: ${i.user.tag}` });
+
+    await i.channel.send({
+      content: "@everyone",
+      embeds: [embed],
+    });
+
+    return i.reply({ content: "Duyuru gönderildi", ephemeral: true });
+  }
+
+  // ================= MESAJ SİL =================
+  if (i.commandName === "mesaj_sil") {
+    if (!i.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
+      return i.reply({ content: "Yetkin yok", ephemeral: true });
+    }
+
+    await i.reply({
+      content: "Silinecek mesaj sayısını yaz (1-100):",
+      ephemeral: true,
+    });
+
+    const filter = m => m.author.id === i.user.id;
+
+    const collector = i.channel.createMessageCollector({
+      filter,
+      max: 1,
+      time: 15000,
+    });
+
+    collector.on("collect", async (msg) => {
+      let count = Number(msg.content);
+
+      if (isNaN(count)) return msg.reply("Sayı gir.");
+
+      if (count > 100) count = 100;
+
+      const messages = await i.channel.messages.fetch({ limit: count });
+
+      await i.followUp({ content: "Siliniyor...", ephemeral: true });
+
+      await i.channel.bulkDelete(messages, true);
+
+      await i.followUp({ content: "Mesajlar silindi ✔", ephemeral: true });
+    });
   }
 });
 
@@ -255,7 +307,7 @@ function checkSureler() {
   const now = Date.now();
 
   kayitlar = kayitlar.filter(k => {
-    const bitis = k.baslangic + (k.sureGun * 86400000);
+    const bitis = k.baslangic + k.sureGun * 86400000;
 
     if (now > bitis) {
       const embed = new EmbedBuilder()
@@ -278,83 +330,6 @@ function checkSureler() {
     }
 
     return true;
-  });
-}
-
-// ================= Duyuru =================
-if (i.commandName === "duyuru") {
-  const modal = new ModalBuilder()
-    .setCustomId("duyuru_modal")
-    .setTitle("📢 Duyuru Oluştur");
-
-  const msg = new TextInputBuilder()
-    .setCustomId("msg")
-    .setLabel("Duyuru metni")
-    .setStyle(TextInputStyle.Paragraph);
-
-  modal.addComponents(new ActionRowBuilder().addComponents(msg));
-
-  return i.showModal(modal);
-}
-
-if (i.isModalSubmit() && i.customId === "duyuru_modal") {
-  const msg = i.fields.getTextInputValue("msg");
-
-  const embed = new EmbedBuilder()
-    .setColor("Yellow")
-    .setTitle("📢 DUYURU")
-    .setDescription(msg)
-    .setFooter({ text: `Yetkili: ${i.user.tag}` });
-
-  await i.channel.send({
-    content: "@everyone",
-    embeds: [embed]
-  });
-
-  return i.reply({ content: "Duyuru gönderildi", ephemeral: true });
-}
-
-// ================= mesaj_sil =================
-if (i.commandName === "mesaj_sil") {
-  if (!i.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
-    return i.reply({ content: "Yetkin yok", ephemeral: true });
-  }
-
-  await i.reply({
-    content: "Silinecek mesaj sayısını yaz (1-100):",
-    ephemeral: true
-  });
-
-  const filter = m => m.author.id === i.user.id;
-
-  const collector = i.channel.createMessageCollector({
-    filter,
-    max: 1,
-    time: 15000
-  });
-
-  collector.on("collect", async (msg) => {
-    let count = Number(msg.content);
-
-    if (isNaN(count)) {
-      return msg.reply("Sadece sayı gir.");
-    }
-
-    if (count > 100) count = 100;
-
-    const messages = await i.channel.messages.fetch({ limit: count });
-
-    await i.followUp({ content: "Siliniyor...", ephemeral: true });
-
-    await i.channel.bulkDelete(messages, true);
-
-    await i.followUp({ content: "Mesajlar silindi ✔", ephemeral: true });
-  });
-
-  collector.on("end", collected => {
-    if (collected.size === 0) {
-      i.followUp({ content: "Süre doldu, işlem iptal.", ephemeral: true });
-    }
   });
 }
 
