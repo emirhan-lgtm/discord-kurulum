@@ -3,115 +3,111 @@ const {
     GatewayIntentBits, 
     EmbedBuilder, 
     PermissionFlagsBits, 
-    AuditLogEvent 
+    REST, 
+    Routes, 
+    SlashCommandBuilder,
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle
 } = require('discord.js');
 const express = require("express");
 
+// --- UPTIME SERVİSİ ---
 const app = express();
-app.get("/", (_, res) => res.send("Log Botu Aktif!"));
+app.get("/", (_, res) => res.send("Slash Bot Aktif!"));
 app.listen(3000);
 
 // --- KONFİGÜRASYON ---
 const TOKEN = process.env.TOKEN;
-const PREFIX = "/";
-let LOG_KANAL_ID = null; // Komutla ayarlanacak kanal
+const CLIENT_ID = "BOT_ID_YAZIN"; // Botunun ID'sini buraya yazmalısın
+let LOG_KANAL_ID = null; 
 
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds, 
         GatewayIntentBits.GuildMessages, 
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildVoiceStates,
-        GatewayIntentBits.GuildPresences
+        GatewayIntentBits.GuildMembers
     ],
 });
 
-client.on('ready', () => {
-    console.log(`${client.user.tag} Tüm olayları loglamak için hazır!`);
-});
+// --- SLASH KOMUTLARI TANIMLAMA ---
+const commands = [
+    new SlashCommandBuilder().setName('kanal_kilitle').setDescription('Kanalı yazıya kapatır').addChannelOption(opt => opt.setName('kanal').setDescription('Kilitlenecek kanal')),
+    new SlashCommandBuilder().setName('kanal_olustur').setDescription('Yeni kanal açar').addStringOption(opt => opt.setName('isim').setDescription('Kanal adı').setRequired(true)),
+    new SlashCommandBuilder().setName('duyuru').setDescription('Duyuru yapar').addChannelOption(opt => opt.setName('kanal').setDescription('Kanal seç').setRequired(true)).addStringOption(opt => opt.setName('mesaj').setDescription('Duyuru metni').setRequired(true)),
+    new SlashCommandBuilder().setName('bilet_aktiflestir').setDescription('Ticket sistemini açar'),
+    new SlashCommandBuilder().setName('afk').setDescription('AFK moduna geçer').addStringOption(opt => opt.setName('sebep').setDescription('Neden AFK?')),
+    new SlashCommandBuilder().setName('anket').setDescription('Anket başlatır').addStringOption(opt => opt.setName('soru').setDescription('Anket sorusu').setRequired(true)),
+    new SlashCommandBuilder().setName('anti_raid').setDescription('Saldırı koruması').addStringOption(opt => opt.setName('durum').setDescription('Aç veya Kapat').setRequired(true).addChoices({name:'Aç', value:'ac'}, {name:'Kapat', value:'kapat'})),
+    new SlashCommandBuilder().setName('avatar').setDescription('Avatar gösterir').addUserOption(opt => opt.setName('kullanici').setDescription('Kullanıcı seç')),
+    new SlashCommandBuilder().setName('ban').setDescription('Kullanıcıyı yasaklar').addUserOption(opt => opt.setName('kullanici').setDescription('Yasaklanacak kişi').setRequired(true)).addStringOption(opt => opt.setName('sebep').setDescription('Sebep')),
+    new SlashCommandBuilder().setName('basvuru').setDescription('Başvuru formu açar'),
+    new SlashCommandBuilder().setName('log_ayarla').setDescription('Olay log kanalını belirler').addChannelOption(opt => opt.setName('kanal').setDescription('Log kanalı').setRequired(true)),
+].map(command => command.toJSON());
+
+// --- KOMUTLARI DISCORD'A KAYDETME ---
+const rest = new REST({ version: '10' }).setToken(TOKEN);
+(async () => {
+    try {
+        console.log('Slash komutlar yükleniyor...');
+        await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
+        console.log('Slash komutlar başarıyla kaydedildi!');
+    } catch (error) {
+        console.error(error);
+    }
+})();
 
 // --- LOG GÖNDERME FONKSİYONU ---
 const logHaberVer = (baslik, aciklama, renk = "Blue") => {
     if (!LOG_KANAL_ID) return;
     const kanal = client.channels.cache.get(LOG_KANAL_ID);
     if (kanal) {
-        const embed = new EmbedBuilder()
-            .setTitle(baslik)
-            .setDescription(aciklama)
-            .setColor(renk)
-            .setTimestamp();
+        const embed = new EmbedBuilder().setTitle(baslik).setDescription(aciklama).setColor(renk).setTimestamp();
         kanal.send({ embeds: [embed] });
     }
 };
 
-// --- KOMUTLAR ---
-client.on('messageCreate', async (message) => {
-    if (message.author.bot || !message.content.startsWith(PREFIX)) return;
+// --- KOMUT ÇALIŞTIRMA (INTERACTION) ---
+client.on('interactionCreate', async interaction => {
+    if (!interaction.isChatInputCommand()) return;
 
-    const args = message.content.slice(PREFIX.length).trim().split(/ +/);
-    const command = args.shift().toLowerCase();
+    const { commandName, options } = interaction;
 
-    // /log_ayarla kanal:#kanal
-    if (command === 'log_ayarla') {
-        if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return;
-        const kanal = message.mentions.channels.first();
-        if (!kanal) return message.reply("⚠️ Lütfen bir kanal etiketle! Örn: `/log_ayarla #log-kanalı`");
-        
+    if (commandName === 'log_ayarla') {
+        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return interaction.reply("Yetkin yok!");
+        const kanal = options.getChannel('kanal');
         LOG_KANAL_ID = kanal.id;
-        message.reply(`✅ Log kanalı başarıyla ${kanal} olarak ayarlandı. Artık her şey burada!`);
-        logHaberVer("Sistem Aktif", "Loglama sistemi bu kanalda başlatıldı.", "Green");
+        await interaction.reply(`✅ Log kanalı ${kanal} olarak ayarlandı.`);
     }
-});
 
-// --- TÜM OLAYLARI İZLEYEN EVENTLER ---
-
-// 1. Üye Giriş
-client.on('guildMemberAdd', (member) => {
-    logHaberVer("📥 Üye Katıldı", `${member} sunucuya giriş yaptı.\n**Kullanıcı Adı:** ${member.user.tag}`, "Green");
-});
-
-// 2. Üye Çıkış
-client.on('guildMemberRemove', (member) => {
-    logHaberVer("📤 Üye Ayrıldı", `**${member.user.tag}** sunucudan ayrıldı veya atıldı.`, "Red");
-});
-
-// 3. Mesaj Silme
-client.on('messageDelete', (message) => {
-    if (message.author?.bot) return;
-    logHaberVer("🗑️ Mesaj Silindi", `**Gönderen:** ${message.author}\n**Kanal:** ${message.channel}\n**Mesaj:** ${message.content || "İçerik yok (Görsel olabilir)"}`, "Orange");
-});
-
-// 4. Mesaj Düzenleme
-client.on('messageUpdate', (oldMessage, newMessage) => {
-    if (oldMessage.author?.bot || oldMessage.content === newMessage.content) return;
-    logHaberVer("📝 Mesaj Düzenlendi", `**Gönderen:** ${oldMessage.author}\n**Eski:** ${oldMessage.content}\n**Yeni:** ${newMessage.content}`, "Yellow");
-});
-
-// 5. Ses Kanalı Hareketleri (Giriş/Çıkış/Değiştirme)
-client.on('voiceStateUpdate', (oldState, newState) => {
-    const member = newState.member;
-    
-    if (!oldState.channelId && newState.channelId) {
-        logHaberVer("🎤 Sese Giriş", `${member} kullanıcısı **${newState.channel.name}** kanalına girdi.`, "Blue");
-    } else if (oldState.channelId && !newState.channelId) {
-        logHaberVer("🔇 Sesden Çıkış", `${member} kullanıcısı **${oldState.channel.name}** kanalından ayrıldı.`, "Grey");
-    } else if (oldState.channelId !== newState.channelId) {
-        logHaberVer("🔄 Kanal Değiştirdi", `${member} kullanıcısı **${oldState.channel.name}** -> **${newState.channel.name}** kanalına geçti.`, "Purple");
+    if (commandName === 'kanal_kilitle') {
+        const kanal = options.getChannel('kanal') || interaction.channel;
+        await kanal.permissionOverwrites.edit(interaction.guild.id, { SendMessages: false });
+        await interaction.reply(`🔒 ${kanal} kilitlendi.`);
+        logHaberVer("Kanal Kilitlendi", `${interaction.user.tag} tarafından ${kanal} kilitlendi.`, "Red");
     }
+
+    if (commandName === 'avatar') {
+        const user = options.getUser('kullanici') || interaction.user;
+        const embed = new EmbedBuilder().setTitle(`${user.tag} Avatarı`).setImage(user.displayAvatarURL({ size: 1024 }));
+        await interaction.reply({ embeds: [embed] });
+    }
+
+    if (commandName === 'afk') {
+        const sebep = options.getString('sebep') || "Belirtilmedi";
+        await interaction.reply(`💤 AFK modundasın: **${sebep}**`);
+    }
+
+    // Diğer komutları da bu şekilde (interaction.reply) mantığıyla buraya ekleyebilirsin.
 });
 
-// 6. Rol Değişiklikleri
-client.on('guildMemberUpdate', (oldMember, newMember) => {
-    const removedRoles = oldMember.roles.cache.filter(role => !newMember.roles.cache.has(role.id));
-    const addedRoles = newMember.roles.cache.filter(role => !oldMember.roles.cache.has(role.id));
-
-    if (addedRoles.size > 0) {
-        logHaberVer("🛡️ Rol Verildi", `${newMember} kullanıcısına **${addedRoles.map(r => r.name).join(", ")}** rolü verildi.`, "Aqua");
-    }
-    if (removedRoles.size > 0) {
-        logHaberVer("🛡️ Rol Alındı", `${newMember} kullanıcısından **${removedRoles.map(r => r.name).join(", ")}** rolü alındı.`, "DarkRed");
-    }
+// --- OLAY LOGLARI (Events) ---
+client.on('guildMemberAdd', member => logHaberVer("📥 Giriş", `${member} geldi.`, "Green"));
+client.on('guildMemberRemove', member => logHaberVer("📤 Çıkış", `${member.user.tag} ayrıldı.`, "Red"));
+client.on('voiceStateUpdate', (oldS, newS) => {
+    if (!oldS.channelId && newS.channelId) logHaberVer("🎤 Ses", `${newS.member} -> **${newS.channel.name}** giriş yaptı.`, "Aqua");
 });
 
 client.login(TOKEN);
+    
