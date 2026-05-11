@@ -19,7 +19,7 @@ app.listen(3000);
 
 // --- KONFİGÜRASYON ---
 const TOKEN = process.env.TOKEN;
-const CLIENT_ID = "BOT_ID_YAZIN"; // Botunun ID'sini buraya yazmalısın
+const CLIENT_ID = "process.env.CLIENT_ID"; // Botunun ID'sini buraya yazmalısın
 let LOG_KANAL_ID = null; 
 
 const client = new Client({
