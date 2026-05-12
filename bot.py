@@ -4,9 +4,10 @@ from discord import app_commands
 import asyncio
 import datetime
 import re
+import os
 
 # ===================== AYARLAR =====================
-import os
+
 TOKEN = os.environ.get("TOKEN")
 SUNUCU_ADI = interaction.guild.name
 
