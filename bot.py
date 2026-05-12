@@ -208,4 +208,5 @@ if __name__ == "__main__":
     if not TOKEN:
         print("❌ HATA: Discord Token bulunamadı! Environment Variables kısmını kontrol edin.")
     else:
-        bot.run os.environ.get("TOKEN")
+        bot.run(os.environ.get("TOKEN"))
+        
