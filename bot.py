@@ -231,5 +231,8 @@ async def anket(interaction: discord.Interaction, soru: str, c1: str, c2: str, c
 
 # ===================== RUN =====================
   
-        bot.run(os.environ.get("TOKEN"))
-        
+        if name == "main":
+if not TOKEN:
+print("❌ HATA: Discord Token bulunamadı! Environment Variables kısmını kontrol edin.")
+else:
+bot.run(os.environ.get("TOKEN"))
