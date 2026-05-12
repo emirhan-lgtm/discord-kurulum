@@ -3,14 +3,15 @@ require("dotenv").config();
 const {
     Client,
     GatewayIntentBits,
-    EmbedBuilder
+    EmbedBuilder,
+    PermissionsBitField
 } = require("discord.js");
 
 const sqlite3 = require("sqlite3").verbose();
 const db = new sqlite3.Database("v8.db");
 
 // =====================================================
-// BOT CORE
+// BOT
 // =====================================================
 const client = new Client({
     intents: [
@@ -22,13 +23,13 @@ const client = new Client({
 });
 
 // =====================================================
-// DATABASE
+// DB
 // =====================================================
-db.run(`CREATE TABLE IF NOT EXISTS modlog (guild_id INTEGER PRIMARY KEY, channel_id INTEGER)`);
-db.run(`CREATE TABLE IF NOT EXISTS afk (user_id INTEGER PRIMARY KEY, reason TEXT)`);
+db.run(`CREATE TABLE IF NOT EXISTS modlog (guild_id TEXT PRIMARY KEY, channel_id TEXT)`);
+db.run(`CREATE TABLE IF NOT EXISTS afk (user_id TEXT PRIMARY KEY, reason TEXT)`);
 
 // =====================================================
-// EMBED SYSTEM
+// EMBED UI
 // =====================================================
 function UI(title, desc, color = 0x2b2d31) {
     return new EmbedBuilder()
@@ -39,69 +40,76 @@ function UI(title, desc, color = 0x2b2d31) {
 }
 
 // =====================================================
-// SAFE LOG SYSTEM
+// MODLOG FIX ENGINE (KRİTİK DÜZELTME)
 // =====================================================
 async function log(guild, title, desc, color) {
 
     if (!guild) return;
 
-    db.get(`SELECT channel_id FROM modlog WHERE guild_id=?`, [guild.id], (err, row) => {
-        if (!row) return;
+    db.get(
+        `SELECT channel_id FROM modlog WHERE guild_id=?`,
+        [guild.id],
+        (err, row) => {
 
-        const ch = guild.channels.cache.get(row.channel_id);
-        if (!ch) return;
+            if (err || !row) return;
 
-        ch.send({ embeds: [UI(title, desc, color)] }).catch(() => {});
-    });
+            const channel = guild.channels.cache.get(row.channel_id);
+            if (!channel) return;
+
+            channel.send({
+                embeds: [UI(title, desc, color)]
+            }).catch(() => {});
+        }
+    );
 }
 
 // =====================================================
 // READY
 // =====================================================
 client.on("ready", () => {
-    console.log(`🟢 ${client.user.tag} V8 PRO FIXED AKTİF`);
+    console.log(`🟢 ${client.user.tag} V8 PRO ONLINE`);
 });
 
 // =====================================================
-// MESSAGE SYSTEM (AFK + SAFETY)
+// MESSAGE SYSTEM (AFK)
 // =====================================================
 client.on("messageCreate", async msg => {
 
     if (!msg.guild || msg.author.bot) return;
 
     // AFK RETURN
-    db.get(`SELECT reason FROM afk WHERE user_id=?`, [msg.author.id], (err, row) => {
+    db.get(`SELECT reason FROM afk WHERE user_id=?`, [msg.author.id], (e, row) => {
+        if (!row) return;
 
-        if (row) {
-            db.run(`DELETE FROM afk WHERE user_id=?`, [msg.author.id]);
+        db.run(`DELETE FROM afk WHERE user_id=?`, [msg.author.id]);
 
-            msg.reply({
-                embeds: [UI("AFK SONLANDI", "Artık aktif durumdasın", 0x2ecc71)]
-            }).catch(() => {});
-        }
+        msg.reply({
+            embeds: [UI("AFK SONLANDI", "Artık aktifsin", 0x2ecc71)]
+        }).catch(() => {});
     });
 
     // AFK MENTION
-    msg.mentions.users.forEach(u => {
+    msg.mentions.users.forEach(user => {
 
-        db.get(`SELECT reason FROM afk WHERE user_id=?`, [u.id], (err, row) => {
+        db.get(`SELECT reason FROM afk WHERE user_id=?`, [user.id], (e, row) => {
 
-            if (row) {
-                msg.channel.send({
-                    embeds: [
-                        UI("💤 AFK",
-                            `${u.tag}\nSebep: ${row.reason}`,
-                            0x95a5a6
-                        )
-                    ]
-                }).catch(() => {});
-            }
+            if (!row) return;
+
+            msg.channel.send({
+                embeds: [
+                    UI(
+                        "💤 AFK",
+                        `${user.tag}\nSebep: ${row.reason}`,
+                        0x95a5a6
+                    )
+                ]
+            }).catch(() => {});
         });
     });
 });
 
 // =====================================================
-// INTERACTIONS
+// COMMAND SYSTEM
 // =====================================================
 client.on("interactionCreate", async i => {
 
@@ -119,39 +127,57 @@ client.on("interactionCreate", async i => {
         const user = i.options.getUser("kullanıcı");
         const reason = i.options.getString("sebep");
 
-        try {
-            const member = await g.members.fetch(user.id);
-            await member.ban({ reason });
-        } catch {
-            return i.reply({ content: "Ban başarısız", ephemeral: true });
-        }
+        const member = await g.members.fetch(user.id);
+        await member.ban({ reason });
 
-        user.send({
-            embeds: [
-                UI("⛔ BANLANDIN", `Sunucu: ${g.name}\nSebep: ${reason}`, 0xe74c3c)
-            ]
-        }).catch(() => {});
+        await log(g,
+            "🔨 BAN",
+            `Kullanıcı: ${user.tag}\nSebep: ${reason}`,
+            0xe74c3c
+        );
 
-        await log(g, "BAN LOG", `${user.tag} banlandı\nSebep: ${reason}`, 0xe74c3c);
-
-        i.reply({ embeds: [UI("Ban", "Kullanıcı banlandı", 0xe74c3c)], ephemeral: true });
+        i.reply({
+            embeds: [UI("Ban", "Kullanıcı banlandı", 0xe74c3c)],
+            ephemeral: true
+        });
     }
 
     // =====================================================
-    // UNBAN
+    // ❗ FIXED UNBAN (GERÇEK ÇALIŞAN)
     // =====================================================
     if (i.commandName === "unban") {
 
         const id = i.options.getString("id");
 
         try {
-            const user = await client.users.fetch(id);
-            await g.members.unban(user);
+            const bans = await g.bans.fetch();
+            const bannedUser = bans.get(id);
 
-            i.reply({ embeds: [UI("Unban", "Ban kaldırıldı", 0x2ecc71)], ephemeral: true });
+            if (!bannedUser) {
+                return i.reply({
+                    embeds: [UI("Unban", "Kullanıcı banlı değil", 0xe74c3c)],
+                    ephemeral: true
+                });
+            }
 
-        } catch {
-            i.reply({ content: "Geçersiz ID veya kullanıcı banlı değil", ephemeral: true });
+            await g.members.unban(id);
+
+            await log(g,
+                "🔓 UNBAN",
+                `ID: ${id}`,
+                0x2ecc71
+            );
+
+            i.reply({
+                embeds: [UI("Unban", "Ban kaldırıldı", 0x2ecc71)],
+                ephemeral: true
+            });
+
+        } catch (err) {
+            i.reply({
+                embeds: [UI("Hata", "Unban işlemi başarısız", 0xe74c3c)],
+                ephemeral: true
+            });
         }
     }
 
@@ -163,35 +189,32 @@ client.on("interactionCreate", async i => {
         const user = i.options.getUser("kullanıcı");
         const reason = i.options.getString("sebep");
 
-        try {
-            const member = await g.members.fetch(user.id);
-            await member.kick(reason);
-        } catch {
-            return i.reply({ content: "Kick başarısız", ephemeral: true });
-        }
+        const member = await g.members.fetch(user.id);
+        await member.kick(reason);
 
-        user.send({
-            embeds: [UI("🚪 ATILDIN", `Sunucu: ${g.name}\nSebep: ${reason}`, 0xf39c12)]
-        }).catch(() => {});
+        await log(g,
+            "👢 KICK",
+            `${user.tag} atıldı\nSebep: ${reason}`,
+            0xf39c12
+        );
 
-        await log(g, "KICK LOG", `${user.tag} atıldı`, 0xf39c12);
-
-        i.reply({ embeds: [UI("Kick", "Kullanıcı atıldı", 0xf39c12)] });
+        i.reply({ embeds: [UI("Kick", "Kullanıcı atıldı", 0xf39c12)], ephemeral: true });
     }
 
     // =====================================================
-    // MODLOG
+    // MODLOG AYAR
     // =====================================================
     if (i.commandName === "modlog") {
 
         const channel = i.options.getChannel("kanal");
 
-        db.run(`REPLACE INTO modlog VALUES (?,?)`, [g.id, channel.id]);
+        db.run(
+            `REPLACE INTO modlog VALUES (?,?)`,
+            [g.id, channel.id]
+        );
 
         i.reply({
-            embeds: [
-                UI("ModLog", `Kanal ayarlandı: ${channel}`, 0x5865F2)
-            ],
+            embeds: [UI("ModLog", `Kanal: ${channel}`, 0x5865F2)],
             ephemeral: true
         });
     }
@@ -203,7 +226,10 @@ client.on("interactionCreate", async i => {
 
         const reason = i.options.getString("sebep");
 
-        db.run(`REPLACE INTO afk VALUES (?,?)`, [u.id, reason]);
+        db.run(
+            `REPLACE INTO afk VALUES (?,?)`,
+            [u.id, reason]
+        );
 
         i.reply({
             embeds: [UI("AFK", reason, 0x3498db)],
@@ -218,8 +244,12 @@ client.on("interactionCreate", async i => {
 
         const amount = i.options.getInteger("miktar");
 
-        if (amount < 1 || amount > 100)
-            return i.reply({ content: "1-100 arası olmalı", ephemeral: true });
+        if (amount < 1 || amount > 100) {
+            return i.reply({
+                embeds: [UI("Hata", "1-100 arası olmalı", 0xe74c3c)],
+                ephemeral: true
+            });
+        }
 
         await i.channel.bulkDelete(amount, true);
 
@@ -234,19 +264,19 @@ client.on("interactionCreate", async i => {
     // =====================================================
     if (i.commandName === "duyuru") {
 
-        const ch = i.options.getChannel("kanal");
+        const channel = i.options.getChannel("kanal");
         const title = i.options.getString("başlık");
         const msg = i.options.getString("mesaj");
 
-        ch.send({ embeds: [UI(title, msg, 0x5865F2)] });
+        channel.send({
+            embeds: [UI(`📢 ${title}`, msg, 0x5865F2)]
+        });
 
         i.reply({ content: "Duyuru gönderildi", ephemeral: true });
     }
 });
 
 // =====================================================
-// LOGIN (SAFE)
+// LOGIN
 // =====================================================
-client.login(process.env.TOKEN).catch(err => {
-    console.error("TOKEN HATASI:", err);
-});
+client.login(process.env.TOKEN);
