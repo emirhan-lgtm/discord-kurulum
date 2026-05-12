@@ -8,7 +8,7 @@ import re
 # ===================== AYARLAR =====================
 import os
 TOKEN = os.environ.get("TOKEN")
-SUNUCU_ADI = os.environ.get("SUNUCU_ADI", "Sunucu")
+SUNUCU_ADI = {interaction.guild.name}",)
 
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
